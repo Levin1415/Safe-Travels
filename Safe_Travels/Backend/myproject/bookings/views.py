@@ -14,6 +14,7 @@ from rest_framework.views import APIView  # pyright: ignore[reportMissingImports
 from django_ratelimit.decorators import ratelimit  # pyright: ignore[reportMissingImports]
 from django_ratelimit.core import is_ratelimited  # pyright: ignore[reportMissingImports]
 
+
 import razorpay  # pyright: ignore[reportMissingImports]
 
 from .models import Booking, Bus, Payment, Seat, Train, TrainSeat, Flight, FlightSeat
@@ -53,8 +54,19 @@ def get_razorpay_client():
 class Registerview(APIView):
     def post(self, request):
         # Rate limiting
-        if is_ratelimited(request, key='ip', rate='5/m', method='POST', increment=True):
-            return Response({'error': 'Too many registration attempts. Please try again later.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        if is_ratelimited(
+            request,
+            key='ip',
+            rate='5/m',
+            method='POST',
+            increment=True,
+            group='register'   # ✅ FIX
+        ):
+            return Response(
+                {'error': 'Too many registration attempts. Please try again later.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         try:
             serializer = UserRegisterSerializer(data=request.data)
             if serializer.is_valid():
@@ -62,35 +74,63 @@ class Registerview(APIView):
                 token, created = Token.objects.get_or_create(user=user)
                 logger.info(f"New user registered: {user.username}")
                 return Response({'token': token.key}, status=status.HTTP_201_CREATED)
+
             logger.warning(f"Registration failed: {serializer.errors}")
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")
-            return Response({'error': 'Registration failed. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {'error': 'Registration failed. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class LoginView(APIView):
     def post(self, request):
         # Rate limiting
-        if is_ratelimited(request, key='ip', rate='10/m', method='POST', increment=True):
-            return Response({'error': 'Too many login attempts. Please try again later.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        if is_ratelimited(
+            request,
+            key='ip',
+            rate='10/m',
+            method='POST',
+            increment=True,
+            group='login'   # ✅ REQUIRED FIX
+        ):
+            return Response(
+                {'error': 'Too many login attempts. Please try again later.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         try:
             username = request.data.get('username')
             password = request.data.get('password')
+
             user = authenticate(username=username, password=password)
+
             if user:
                 token, created = Token.objects.get_or_create(user=user)
                 logger.info(f"User logged in: {user.username}")
-                return Response({
-                    'token': token.key,
-                    'user_id': user.id
-                }, status=status.HTTP_200_OK)
+                return Response(
+                    {
+                        'token': token.key,
+                        'user_id': user.id
+                    },
+                    status=status.HTTP_200_OK
+                )
             else:
                 logger.warning(f"Failed login attempt for: {username}")
-                return Response({'error': 'Invalid Credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+                return Response(
+                    {'error': 'Invalid Credentials'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
         except Exception as e:
             logger.error(f"Login error: {str(e)}")
-            return Response({'error': 'Login failed. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {'error': 'Login failed. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class BusListCreateView(generics.ListCreateAPIView):
